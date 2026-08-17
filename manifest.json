@@ -1,19 +1,20 @@
 {
-  "manifest_version": 3,
-  "name": "LinkedIn Follow-Up Tracker",
-  "version": "1.0.0",
-  "description": "Track LinkedIn connections and follow-ups.",
-  "action": {
-    "default_popup": "popup.html"
-  },
-  "permissions": [
-    "storage",
-    "identity"
-  ],
-  "oauth2": {
-    "client_id": "954030658876-2v73ctjpsus51cmkg5ssu09tob2fnd0n.apps.googleusercontent.com",
-    "scopes": [
-      "https://www.googleapis.com/auth/spreadsheets"
-    ]
-  }
+    "manifest_version": 3,
+    "name": "LinkedIn Follow-Up Tracker",
+    "version": "1.0.0",
+    "description": "Track LinkedIn connections and follow-ups.",
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "permissions": [
+        "storage",
+        "identity"
+    ],
+    "oauth2": {
+        "client_id": "954030658876-2v73ctjpsus51cmkg5ssu09tob2fnd0n.apps.googleusercontent.com",
+        "scopes": [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.readonly"
+        ]
+    }
 }
