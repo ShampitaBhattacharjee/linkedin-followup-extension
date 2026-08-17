@@ -1,96 +1,75 @@
 document.addEventListener("DOMContentLoaded", () => {
   const button = document.createElement("button");
-  button.textContent = "Load My Google Sheets";
-
-  const container = document.createElement("div");
-  container.style.marginTop = "15px";
+  button.textContent = "Create Sheet Headers";
 
   document.body.appendChild(button);
-  document.body.appendChild(container);
 
-  button.addEventListener("click", loadSheets);
+  button.addEventListener("click", createHeaders);
 
-  async function loadSheets() {
+  async function createHeaders() {
     try {
-      container.innerHTML = "Loading...";
+      const stored = await chrome.storage.local.get([
+        "selectedSheetId",
+        "selectedSheetName"
+      ]);
+
+      if (!stored.selectedSheetId) {
+        alert("Please select a Google Sheet first.");
+        return;
+      }
 
       const result = await chrome.identity.getAuthToken({
         interactive: true,
         scopes: [
-          "https://www.googleapis.com/auth/spreadsheets",
-          "https://www.googleapis.com/auth/drive.readonly"
+          "https://www.googleapis.com/auth/spreadsheets"
         ]
       });
 
       const token = result.token;
 
+      const headers = [
+        "Name",
+        "LinkedIn URL",
+        "Company",
+        "Industry",
+        "Connection Sent",
+        "Connection Accepted",
+        "Message Sent",
+        "Message Date",
+        "Reply Received",
+        "Reply Date",
+        "Follow-up 3D",
+        "Follow-up 7D"
+      ];
+
       const response = await fetch(
-        "https://www.googleapis.com/drive/v3/files" +
-        "?q=mimeType%3D'application%2Fvnd.google-apps.spreadsheet'" +
-        "&fields=files(id,name)" +
-        "&orderBy=name",
+        `https://sheets.googleapis.com/v4/spreadsheets/${stored.selectedSheetId}/values/A1:L1?valueInputOption=USER_ENTERED`,
         {
+          method: "PUT",
           headers: {
-            Authorization: `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            values: [headers]
+          })
         }
       );
 
       if (!response.ok) {
-        throw new Error(`Google Drive API error: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error?.message || `Sheets API error: ${response.status}`
+        );
       }
 
-      const data = await response.json();
-
-      container.innerHTML = "";
-
-      if (!data.files || data.files.length === 0) {
-        container.textContent = "No Google Sheets found.";
-        return;
-      }
-
-      const label = document.createElement("label");
-      label.textContent = "Select your Google Sheet:";
-      label.style.display = "block";
-      label.style.marginBottom = "8px";
-
-      const select = document.createElement("select");
-      select.style.width = "100%";
-      select.style.padding = "6px";
-
-      data.files.forEach((file) => {
-        const option = document.createElement("option");
-
-        option.value = file.id;
-        option.textContent = file.name;
-
-        select.appendChild(option);
-      });
-
-      const saveButton = document.createElement("button");
-      saveButton.textContent = "Use This Sheet";
-      saveButton.style.marginTop = "10px";
-
-      container.appendChild(label);
-      container.appendChild(select);
-      container.appendChild(saveButton);
-
-      saveButton.addEventListener("click", async () => {
-        const selectedId = select.value;
-        const selectedName =
-          select.options[select.selectedIndex].textContent;
-
-        await chrome.storage.local.set({
-          selectedSheetId: selectedId,
-          selectedSheetName: selectedName
-        });
-
-        alert(`Selected Sheet:\n${selectedName}`);
-      });
+      alert(
+        `Headers created successfully in:\n${stored.selectedSheetName}`
+      );
 
     } catch (error) {
-      console.error("Sheet loading error:", error);
-      container.textContent = "Error: " + error.message;
+      console.error("Header creation error:", error);
+      alert("Error:\n\n" + error.message);
     }
   }
 });
