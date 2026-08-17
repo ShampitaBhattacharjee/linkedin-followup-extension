@@ -7,6 +7,13 @@
     "default_popup": "popup.html"
   },
   "permissions": [
-    "storage"
-  ]
+    "storage",
+    "identity"
+  ],
+  "oauth2": {
+    "client_id": "954030658876-2v73ctjpsus51cmkg5ssu09tob2fnd0n.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets"
+    ]
+  }
 }
