@@ -172,11 +172,9 @@ if (!isSentInvitationsPage()) {
                 seen.add(url);
 
                 invitations.push({
-
                     name: name,
-
-                    linkedinUrl: url
-
+                    linkedinUrl: url,
+                    // invitationNote: invitationNote
                 });
 
                 console.log(
