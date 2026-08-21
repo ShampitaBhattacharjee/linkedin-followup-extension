@@ -1,75 +1,373 @@
-document.addEventListener("DOMContentLoaded", () => {
-  const button = document.createElement("button");
-  button.textContent = "Create Sheet Headers";
+const connectButton = document.getElementById("connectButton");
+const status = document.getElementById("status");
+const sheetLink = document.getElementById("sheetLink");
 
-  document.body.appendChild(button);
+const SHEET_NAME = "LinkedIn Leads";
 
-  button.addEventListener("click", createHeaders);
+const HEADERS = [
+    "Name",
+    "LinkedIn URL",
+    "Date Added",
+    "Status",
+    "Last Contacted",
+    "Follow-Up Date",
+    "Notes"
+];
 
-  async function createHeaders() {
-    try {
-      const stored = await chrome.storage.local.get([
-        "selectedSheetId",
-        "selectedSheetName"
-      ]);
 
-      if (!stored.selectedSheetId) {
-        alert("Please select a Google Sheet first.");
-        return;
-      }
+/* =====================================================
+   UI HELPERS
+===================================================== */
 
-      const result = await chrome.identity.getAuthToken({
-        interactive: true,
-        scopes: [
-          "https://www.googleapis.com/auth/spreadsheets"
-        ]
-      });
+function showStatus(message, type = "") {
+    status.textContent = message;
+    status.className = type;
+}
 
-      const token = result.token;
 
-      const headers = [
-        "Name",
-        "LinkedIn URL",
-        "Company",
-        "Industry",
-        "Connection Sent",
-        "Connection Accepted",
-        "Message Sent",
-        "Message Date",
-        "Reply Received",
-        "Reply Date",
-        "Follow-up 3D",
-        "Follow-up 7D"
-      ];
+/* =====================================================
+   GOOGLE AUTHENTICATION
+===================================================== */
 
-      const response = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${stored.selectedSheetId}/values/A1:L1?valueInputOption=USER_ENTERED`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            values: [headers]
-          })
-        }
-      );
+async function getGoogleToken() {
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(
-          errorData.error?.message || `Sheets API error: ${response.status}`
+    return new Promise((resolve, reject) => {
+
+        chrome.identity.getAuthToken(
+            {
+                interactive: true
+            },
+            (token) => {
+
+                if (chrome.runtime.lastError) {
+                    reject(
+                        new Error(
+                            chrome.runtime.lastError.message
+                        )
+                    );
+
+                    return;
+                }
+
+                if (!token) {
+                    reject(
+                        new Error(
+                            "Google authentication failed."
+                        )
+                    );
+
+                    return;
+                }
+
+                resolve(token);
+            }
         );
-      }
 
-      alert(
-        `Headers created successfully in:\n${stored.selectedSheetName}`
-      );
+    });
+}
+
+
+/* =====================================================
+   CREATE GOOGLE SHEET
+===================================================== */
+
+async function createSpreadsheet(token) {
+
+    const response = await fetch(
+        "https://sheets.googleapis.com/v4/spreadsheets",
+        {
+            method: "POST",
+
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+                properties: {
+                    title: "LinkedIn Follow-Up Tracker"
+                },
+
+                sheets: [
+                    {
+                        properties: {
+                            title: SHEET_NAME
+                        }
+                    }
+                ]
+            })
+        }
+    );
+
+
+    if (!response.ok) {
+
+        const errorText = await response.text();
+
+        throw new Error(
+            `Could not create Google Sheet: ${errorText}`
+        );
+    }
+
+
+    return await response.json();
+}
+
+
+/* =====================================================
+   ADD HEADERS
+===================================================== */
+
+async function addHeaders(token, spreadsheetId) {
+
+    const range = `${SHEET_NAME}!A1:G1`;
+
+    const url =
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
+
+
+    const response = await fetch(
+        url,
+        {
+            method: "PUT",
+
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+                values: [
+                    HEADERS
+                ]
+            })
+        }
+    );
+
+
+    if (!response.ok) {
+
+        const errorText = await response.text();
+
+        throw new Error(
+            `Could not create sheet headers: ${errorText}`
+        );
+    }
+
+
+    return await response.json();
+}
+
+
+/* =====================================================
+   SAVE ONLY CONFIGURATION
+===================================================== */
+
+async function saveConfiguration(
+    spreadsheetId,
+    spreadsheetUrl
+) {
+
+    await chrome.storage.local.set({
+
+        googleSheetsConnected: true,
+
+        spreadsheetId: spreadsheetId,
+
+        spreadsheetUrl: spreadsheetUrl
+
+    });
+}
+
+
+/* =====================================================
+   CONNECT GOOGLE SHEETS
+===================================================== */
+
+async function connectGoogleSheets() {
+
+    try {
+
+        connectButton.disabled = true;
+
+        showStatus(
+            "Connecting to Google...",
+            "loading"
+        );
+
+
+        /* ---------------------------------------------
+           1. GOOGLE AUTH
+        --------------------------------------------- */
+
+        const token =
+            await getGoogleToken();
+
+
+        showStatus(
+            "Creating your Google Sheet...",
+            "loading"
+        );
+
+
+        /* ---------------------------------------------
+           2. CREATE SPREADSHEET
+        --------------------------------------------- */
+
+        const spreadsheet =
+            await createSpreadsheet(token);
+
+
+        const spreadsheetId =
+            spreadsheet.spreadsheetId;
+
+
+        if (!spreadsheetId) {
+
+            throw new Error(
+                "Google did not return a spreadsheet ID."
+            );
+        }
+
+
+        /* ---------------------------------------------
+           3. CREATE HEADERS
+        --------------------------------------------- */
+
+        showStatus(
+            "Setting up your tracker...",
+            "loading"
+        );
+
+
+        await addHeaders(
+            token,
+            spreadsheetId
+        );
+
+
+        /* ---------------------------------------------
+           4. SAVE ONLY CONFIGURATION
+        --------------------------------------------- */
+
+        const spreadsheetUrl =
+            `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+
+
+        await saveConfiguration(
+            spreadsheetId,
+            spreadsheetUrl
+        );
+
+
+        /* ---------------------------------------------
+           5. UPDATE UI
+        --------------------------------------------- */
+
+        connectButton.textContent =
+            "Connected ✓";
+
+        connectButton.disabled =
+            true;
+
+
+        showStatus(
+            "✓ Google Sheets connected successfully.",
+            "success"
+        );
+
+
+        sheetLink.href =
+            spreadsheetUrl;
+
+        sheetLink.style.display =
+            "block";
+
 
     } catch (error) {
-      console.error("Header creation error:", error);
-      alert("Error:\n\n" + error.message);
+
+        console.error(
+            "Google Sheets connection error:",
+            error
+        );
+
+
+        connectButton.disabled =
+            false;
+
+
+        showStatus(
+            `Connection failed: ${error.message}`,
+            "error"
+        );
+
     }
-  }
-});
+
+}
+
+
+/* =====================================================
+   CHECK EXISTING CONNECTION
+===================================================== */
+
+async function checkConnection() {
+
+    chrome.storage.local.get(
+        [
+            "googleSheetsConnected",
+            "spreadsheetId",
+            "spreadsheetUrl"
+        ],
+
+        (result) => {
+
+            if (
+                result.googleSheetsConnected &&
+                result.spreadsheetId
+            ) {
+
+                connectButton.textContent =
+                    "Connected ✓";
+
+                connectButton.disabled =
+                    true;
+
+
+                showStatus(
+                    "✓ Google Sheets connected successfully.",
+                    "success"
+                );
+
+
+                if (result.spreadsheetUrl) {
+
+                    sheetLink.href =
+                        result.spreadsheetUrl;
+
+                    sheetLink.style.display =
+                        "block";
+                }
+
+            }
+
+        }
+    );
+
+}
+
+
+/* =====================================================
+   BUTTON
+===================================================== */
+
+connectButton.addEventListener(
+    "click",
+    connectGoogleSheets
+);
+
+
+/* =====================================================
+   START
+===================================================== */
+
+checkConnection();

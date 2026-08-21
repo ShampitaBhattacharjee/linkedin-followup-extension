@@ -1,33 +1,36 @@
 {
-  "manifest_version": 3,
-  "name": "LinkedIn Follow-Up Tracker",
-  "version": "1.0.0",
-  "description": "Track LinkedIn connections and follow-ups.",
-  "action": {
-    "default_popup": "popup.html"
-  },
-  "permissions": [
-    "storage",
-    "identity"
-  ],
-  "host_permissions": [
-    "https://www.linkedin.com/*"
-  ],
-  "oauth2": {
-    "client_id": "954030658876-2v73ctjpsus51cmkg5ssu09tob2fnd0n.apps.googleusercontent.com",
-    "scopes": [
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/drive.readonly"
+    "manifest_version": 3,
+    "name": "LinkedIn Follow-Up Tracker",
+    "version": "2.0.0",
+    "description": "Track LinkedIn connections and follow-ups directly in Google Sheets.",
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "permissions": [
+        "identity",
+        "storage"
+    ],
+    "host_permissions": [
+        "https://www.linkedin.com/*",
+        "https://sheets.googleapis.com/*"
+    ],
+    "oauth2": {
+        "client_id": "954030658876-2v73ctjpsus51cmkg5ssu09tob2fnd0n.apps.googleusercontent.com",
+        "scopes": [
+            "https://www.googleapis.com/auth/drive.file"
+        ]
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://www.linkedin.com/*"
+            ],
+            "js": [
+                "content.js"
+            ]
+        }
     ]
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://www.linkedin.com/*"
-      ],
-      "js": [
-        "content.js"
-      ]
-    }
-  ]
 }
