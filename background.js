@@ -1,6 +1,7 @@
 console.log("Background service started.");
 
 let sheetSaveInProgress = false;
+let pendingLinkedInData = [];
 
 function getGoogleToken() {
     return new Promise((resolve, reject) => {
@@ -215,16 +216,16 @@ async function addHeaders(token, spreadsheetId) {
 async function saveLinkedInDataToSheet(invitations) {
 
     // Prevent multiple simultaneous sheet writes
-    if (sheetSaveInProgress) {
+    // if (sheetSaveInProgress) {
 
-        console.log(
-            "Sheet save already in progress. Skipping this request."
-        );
+    //     console.log(
+    //         "Sheet save already in progress. Skipping this request."
+    //     );
 
-        return;
-    }
+    //     return;
+    // }
 
-    sheetSaveInProgress = true;
+    // sheetSaveInProgress = true;
 
     try {
 
@@ -425,6 +426,7 @@ async function saveLinkedInDataToSheet(invitations) {
             "Error saving LinkedIn data to Google Sheet:",
             error
         );
+        throw error;
 
 
     } finally {
@@ -434,10 +436,64 @@ async function saveLinkedInDataToSheet(invitations) {
          * after the current save has finished.
          */
 
-        sheetSaveInProgress = false;
+        // sheetSaveInProgress = false;
 
     }
 
+}
+
+async function processPendingLinkedInData() {
+
+    if (sheetSaveInProgress) {
+        return;
+    }
+
+    if (pendingLinkedInData.length === 0) {
+        return;
+    }
+
+    sheetSaveInProgress = true;
+
+    // Take the current pending data
+    const dataToSave = pendingLinkedInData;
+
+    // Clear the queue so new data can arrive while we save
+    pendingLinkedInData = [];
+
+    try {
+
+        console.log(
+            "Processing pending LinkedIn data:",
+            dataToSave.length
+        );
+
+        await saveLinkedInDataToSheet(dataToSave);
+
+    } catch (error) {
+
+        console.error(
+            "Failed to process pending LinkedIn data:",
+            error
+        );
+
+        // Put the data back into the queue if saving failed
+        pendingLinkedInData = [
+            ...dataToSave,
+            ...pendingLinkedInData
+        ];
+
+    } finally {
+
+        sheetSaveInProgress = false;
+
+        // If more data arrived while we were saving,
+        // process it now.
+        if (pendingLinkedInData.length > 0) {
+
+            processPendingLinkedInData();
+
+        }
+    }
 }
 
 chrome.runtime.onMessage.addListener(
@@ -450,35 +506,46 @@ chrome.runtime.onMessage.addListener(
                 message.data
             );
 
-            saveLinkedInDataToSheet(
-                message.data
-            )
-            .then(() => {
+            // Add incoming data to the pending queue
+            pendingLinkedInData = [
+                ...pendingLinkedInData,
+                ...(message.data || [])
+            ];
 
-                sendResponse({
-                    success: true
-                });
+            // Remove duplicate profile URLs from the queue
+            const uniqueData = new Map();
 
-            })
-            .catch((error) => {
+            pendingLinkedInData.forEach(item => {
 
-                console.error(
-                    "Failed to save LinkedIn data:",
-                    error
-                );
+                if (item.linkedinUrl) {
+                    uniqueData.set(
+                        item.linkedinUrl,
+                        item
+                    );
+                }
 
-                sendResponse({
-                    success: false,
-                    error: error.message
-                });
+            });
 
+            pendingLinkedInData =
+                Array.from(uniqueData.values());
+
+            console.log(
+                "Pending LinkedIn profiles:",
+                pendingLinkedInData.length
+            );
+
+            processPendingLinkedInData();
+
+            sendResponse({
+                success: true
             });
 
             return true;
         }
-
     }
 );
+
+
 function openSentInvitationsPage() {
 
     const url =
@@ -505,3 +572,26 @@ initializeExtension()
     .then(() => {
         openSentInvitationsPage();
     });
+
+chrome.alarms.create(
+    "linkedinDataSync",
+    {
+        periodInMinutes: 30
+    }
+);
+
+chrome.alarms.onAlarm.addListener(
+    (alarm) => {
+
+        if (alarm.name === "linkedinDataSync") {
+
+            console.log(
+                "30-minute LinkedIn data sync started."
+            );
+
+            openSentInvitationsPage();
+
+        }
+
+    }
+);
