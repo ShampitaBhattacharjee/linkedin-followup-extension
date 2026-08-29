@@ -342,7 +342,7 @@ if (!isSentInvitationsPage()) {
 
         container.scrollTo({
             top: targetScrollTop,
-            behavior: "smooth"
+            behavior: "auto"
         });
 
         console.log(
