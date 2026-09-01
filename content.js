@@ -37,130 +37,130 @@ if (!isSentInvitationsPage()) {
     ================================================= */
 
     function getSentInvitations() {
-    const invitations = [];
-    const seen = new Set();
+        const invitations = [];
+        const seen = new Set();
 
-    const profiles = document.querySelectorAll(
-        "main#workspace a[href*='/in/']"
-    );
+        const profiles = document.querySelectorAll(
+            "main#workspace a[href*='/in/']"
+        );
 
-    console.log("Profile links found:", profiles.length);
+        console.log("Profile links found:", profiles.length);
 
-    profiles.forEach((link, index) => {
-        try {
-            const url = link.href
-                .split("?")[0]
-                .split("#")[0];
+        profiles.forEach((link, index) => {
+            try {
+                const url = link.href
+                    .split("?")[0]
+                    .split("#")[0];
 
-            if (!url || seen.has(url)) {
-                return;
-            }
-
-            seen.add(url);
-
-            /*
-             * LinkedIn sometimes puts the name directly
-             * inside the <a>, and sometimes the <a> is empty.
-             */
-            let name = link.innerText?.trim();
-
-            /*
-             * Find the invitation card surrounding this profile.
-             */
-            const container =
-                link.closest("li") ||
-                link.closest('[role="listitem"]') ||
-                link.closest("div[data-view-name]") ||
-                link.parentElement?.parentElement?.parentElement;
-
-            const containerText =
-                container?.innerText?.trim() || "";
-
-            /*
-             * If <a> has no text, get the name from
-             * the surrounding invitation card.
-             */
-            if (!name && containerText) {
-                const lines = containerText
-                    .split("\n")
-                    .map(line => line.trim())
-                    .filter(Boolean);
-
-                if (lines.length > 0) {
-                    name = lines[0];
+                if (!url || seen.has(url)) {
+                    return;
                 }
-            }
 
-            /*
-             * Final fallback: derive a readable name
-             * from the LinkedIn URL.
-             */
-            if (!name) {
-                const match = url.match(
-                    /linkedin\.com\/in\/([^/]+)/
+                seen.add(url);
+
+                /*
+                 * LinkedIn sometimes puts the name directly
+                 * inside the <a>, and sometimes the <a> is empty.
+                 */
+                let name = link.innerText?.trim();
+
+                /*
+                 * Find the invitation card surrounding this profile.
+                 */
+                const container =
+                    link.closest("li") ||
+                    link.closest('[role="listitem"]') ||
+                    link.closest("div[data-view-name]") ||
+                    link.parentElement?.parentElement?.parentElement;
+
+                const containerText =
+                    container?.innerText?.trim() || "";
+
+                /*
+                 * If <a> has no text, get the name from
+                 * the surrounding invitation card.
+                 */
+                if (!name && containerText) {
+                    const lines = containerText
+                        .split("\n")
+                        .map(line => line.trim())
+                        .filter(Boolean);
+
+                    if (lines.length > 0) {
+                        name = lines[0];
+                    }
+                }
+
+                /*
+                 * Final fallback: derive a readable name
+                 * from the LinkedIn URL.
+                 */
+                if (!name) {
+                    const match = url.match(
+                        /linkedin\.com\/in\/([^/]+)/
+                    );
+
+                    if (match) {
+                        name = match[1]
+                            .replace(/-\w{6,}$/i, "")
+                            .replace(/[-_]+/g, " ")
+                            .replace(/\b\w/g, c => c.toUpperCase());
+                    }
+                }
+
+                if (!name) {
+                    console.warn(
+                        "Could not determine name for:",
+                        url
+                    );
+                    return;
+                }
+
+                const invitation = {
+                    name: name,
+                    linkedinUrl: url
+                };
+
+                /*
+                 * IMPORTANT:
+                 * Store it in the global Map.
+                 * This was missing in the current code.
+                 */
+                allCollectedInvitations.set(
+                    url,
+                    invitation
                 );
 
-                if (match) {
-                    name = match[1]
-                        .replace(/-\w{6,}$/i, "")
-                        .replace(/[-_]+/g, " ")
-                        .replace(/\b\w/g, c => c.toUpperCase());
-                }
-            }
+                invitations.push(invitation);
 
-            if (!name) {
-                console.warn(
-                    "Could not determine name for:",
+                console.log(
+                    `Profile ${invitations.length}:`,
+                    name,
                     url
                 );
-                return;
+
+            } catch (error) {
+                console.error(
+                    "Error processing profile:",
+                    index + 1,
+                    error
+                );
             }
+        });
 
-            const invitation = {
-                name: name,
-                linkedinUrl: url
-            };
+        console.log(
+            "Detected LinkedIn profiles:",
+            invitations.length,
+            invitations
+        );
 
-            /*
-             * IMPORTANT:
-             * Store it in the global Map.
-             * This was missing in the current code.
-             */
-            allCollectedInvitations.set(
-                url,
-                invitation
-            );
+        console.log(
+            "Total unique profiles collected so far:",
+            allCollectedInvitations.size
+        );
 
-            invitations.push(invitation);
-
-            console.log(
-                `Profile ${invitations.length}:`,
-                name,
-                url
-            );
-
-        } catch (error) {
-            console.error(
-                "Error processing profile:",
-                index + 1,
-                error
-            );
-        }
-    });
-
-    console.log(
-        "Detected LinkedIn profiles:",
-        invitations.length,
-        invitations
-    );
-
-    console.log(
-        "Total unique profiles collected so far:",
-        allCollectedInvitations.size
-    );
-
-    return invitations;
-}
+        return invitations;
+    }
 
     function sendCollectedInvitations() {
 
@@ -186,6 +186,9 @@ if (!isSentInvitationsPage()) {
             );
             return;
         }
+
+        console.log("🚨 ABOUT TO SEND TO BACKGROUND:", finalInvitations.length);
+        console.log("🚨 FINAL ARRAY:", finalInvitations);
 
         chrome.runtime.sendMessage(
             {
@@ -220,284 +223,274 @@ if (!isSentInvitationsPage()) {
 
     async function autoScrollAndCollect() {
 
-    if (!isSentInvitationsPage()) {
-        console.log(
-            "Not on Sent Invitations page. Collector stopped."
-        );
-        return;
-    }
-
-    console.log("=================================");
-    console.log("STARTING SENT INVITATION COLLECTOR");
-    console.log("=================================");
-
-    // Wait until LinkedIn creates the actual workspace
-    let container = null;
-
-    for (let attempt = 1; attempt <= 20; attempt++) {
-
-        container = document.querySelector("main#workspace");
-
-        if (container) {
-            break;
-        }
-
-        console.log(
-            `Waiting for LinkedIn workspace... ${attempt}/20`
-        );
-
-        await new Promise(resolve =>
-            setTimeout(resolve, 500)
-        );
-    }
-
-    if (!container) {
-
-        console.error(
-            "Could not find main#workspace."
-        );
-
-        return;
-    }
-
-    console.log(
-        "LinkedIn invitation container found:",
-        container
-    );
-
-    /*
-     * Keep collecting everything that LinkedIn
-     * currently has in the DOM.
-     */
-    getSentInvitations();
-
-    let lastCount =
-        allCollectedInvitations.size;
-
-    let stableRounds = 0;
-
-    /*
-     * Scroll gradually instead of jumping immediately
-     * to the bottom.
-     */
-    for (let round = 1; round <= 30; round++) {
-
         if (!isSentInvitationsPage()) {
-            console.log(
-                "Navigation detected. Collector stopped."
-            );
+            console.log("Not on Sent Invitations page. Collector stopped.");
             return;
         }
 
-        console.log(
-            `========== SCROLL ROUND ${round} ==========`
-        );
+        console.log("=================================");
+        console.log("STARTING SENT INVITATION COLLECTOR");
+        console.log("=================================");
 
-        /*
-         * Make sure we have the latest container.
-         */
-        container =
-            document.querySelector("main#workspace");
+        let container = null;
+
+        // Wait for LinkedIn workspace
+        for (let attempt = 1; attempt <= 30; attempt++) {
+
+            container = document.querySelector("main#workspace");
+
+            if (container) {
+                break;
+            }
+
+            console.log(`Waiting for LinkedIn workspace... ${attempt}/30`);
+
+            await new Promise(resolve =>
+                setTimeout(resolve, 500)
+            );
+        }
 
         if (!container) {
-            console.error(
-                "LinkedIn workspace disappeared."
-            );
+            console.error("Could not find main#workspace.");
             return;
         }
 
-        /*
-         * Collect BEFORE scrolling.
-         */
+        console.log("LinkedIn invitation container found.");
+
+        // Initial collection
         getSentInvitations();
 
-        const beforeCount =
-            allCollectedInvitations.size;
+        let noNewDataRounds = 0;
 
-        console.log(
-            "Profiles before scroll:",
-            beforeCount
-        );
+        // We require several confirmations before stopping
+        const REQUIRED_STABLE_ROUNDS = 3;
 
-        /*
-         * Scroll down by one viewport.
-         *
-         * scrollTo() performs an actual browser scroll
-         * and allows LinkedIn's scroll handlers to react.
-         */
-        const oldScrollTop =
-            container.scrollTop;
+        while (true) {
 
-        const scrollAmount =
-            Math.max(
-                300,
-                container.clientHeight * 0.8
-            );
+            if (!isSentInvitationsPage()) {
+                console.log("Navigation detected. Collector stopped.");
+                return;
+            }
 
-        const targetScrollTop =
-            Math.min(
-                oldScrollTop + scrollAmount,
-                container.scrollHeight
-            );
+            // LinkedIn may replace the container
+            container = document.querySelector("main#workspace");
 
-        container.scrollTo({
-            top: targetScrollTop,
-            behavior: "auto"
-        });
+            if (!container) {
+                console.error("LinkedIn workspace disappeared.");
+                return;
+            }
 
-        console.log(
-            "Scrolling:",
-            oldScrollTop,
-            "→",
-            targetScrollTop
-        );
+            // Collect currently visible profiles
+            getSentInvitations();
 
-        /*
-         * Give LinkedIn time to render lazy-loaded
-         * invitation cards.
-         */
-        await new Promise(resolve =>
-            setTimeout(resolve, 2500)
-        );
+            const beforeCount =
+                allCollectedInvitations.size;
 
-        /*
-         * Collect newly rendered profiles.
-         */
-        getSentInvitations();
+            console.log("---------------------------------");
+            console.log("Profiles collected:", beforeCount);
 
-        const afterCount =
-            allCollectedInvitations.size;
+            // Scroll to bottom
+            container.scrollTo({
+                top: container.scrollHeight,
+                behavior: "auto"
+            });
 
-        console.log(
-            "Profiles after scroll:",
-            afterCount
-        );
+            window.scrollTo({
+                top: document.documentElement.scrollHeight,
+                behavior: "auto"
+            });
 
-        console.log(
-            "New profiles:",
-            afterCount - beforeCount
-        );
+            console.log("Scroll command executed.");
 
-        /*
-         * Check whether we are at the bottom.
-         */
-        const distanceFromBottom =
-            container.scrollHeight -
-            (
-                container.scrollTop +
-                container.clientHeight
-            );
-
-        const atBottom =
-            distanceFromBottom <= 10;
-
-        console.log(
-            "Current scrollTop:",
-            container.scrollTop
-        );
-
-        console.log(
-            "Current scrollHeight:",
-            container.scrollHeight
-        );
-
-        console.log(
-            "Distance from bottom:",
-            distanceFromBottom
-        );
-
-        console.log(
-            "At bottom:",
-            atBottom
-        );
-
-        /*
-         * If we found new profiles, reset the
-         * stability counter.
-         */
-        if (afterCount > lastCount) {
-
-            stableRounds = 0;
-
-        } else {
-
-            stableRounds++;
-        }
-
-        lastCount = afterCount;
-
-        /*
-         * If we reach the bottom, wait a little longer
-         * and collect once more because LinkedIn may
-         * render additional cards asynchronously.
-         */
-        if (atBottom) {
-
-            console.log(
-                "Reached bottom. Waiting for final lazy loading..."
-            );
-
+            // Give LinkedIn time to render/load
             await new Promise(resolve =>
                 setTimeout(resolve, 3000)
             );
 
+            // Collect anything loaded by scrolling
             getSentInvitations();
 
-            const finalCount =
+            const afterScrollCount =
                 allCollectedInvitations.size;
 
             console.log(
-                "Profiles after bottom wait:",
-                finalCount
+                "Profiles after scroll:",
+                afterScrollCount
             );
 
             /*
-             * If no new profiles appeared after several
-             * bottom checks, we're finished.
+             * =========================================
+             * CHECK FOR "LOAD MORE"
+             * =========================================
              */
-            if (
-                finalCount === lastCount &&
-                stableRounds >= 2
-            ) {
+
+            const buttons =
+                Array.from(
+                    document.querySelectorAll("button")
+                );
+
+            const loadMoreButton =
+                buttons.find(button => {
+
+                    const text =
+                        button.innerText
+                            ?.trim()
+                            .toLowerCase();
+
+                    return (
+                        text === "load more" &&
+                        !button.disabled
+                    );
+
+                });
+
+            if (loadMoreButton) {
 
                 console.log(
-                    "No additional invitations detected."
+                    "LOAD MORE button found. Clicking..."
                 );
+
+                loadMoreButton.scrollIntoView({
+                    behavior: "auto",
+                    block: "center"
+                });
+
+                await new Promise(resolve =>
+                    setTimeout(resolve, 500)
+                );
+
+                loadMoreButton.click();
+
+                console.log(
+                    "LOAD MORE clicked. Waiting for new profiles..."
+                );
+
+                // Give LinkedIn time to load next batch
+                await new Promise(resolve =>
+                    setTimeout(resolve, 3000)
+                );
+
+                // Collect newly loaded profiles
+                getSentInvitations();
+
+                console.log(
+                    "Profiles after Load More:",
+                    allCollectedInvitations.size
+                );
+
+                // IMPORTANT:
+                // Start the loop again and look for
+                // another Load More button.
+                noNewDataRounds = 0;
+
+                continue;
+            }
+
+            /*
+             * =========================================
+             * NO LOAD MORE BUTTON
+             * =========================================
+             */
+
+            const newProfiles =
+                afterScrollCount - beforeCount;
+
+            if (newProfiles > 0) {
+
+                console.log(
+                    "New profiles detected. Continuing..."
+                );
+
+                noNewDataRounds = 0;
+
+                continue;
+            }
+
+            /*
+             * =========================================
+             * NOTHING NEW
+             * =========================================
+             */
+
+            noNewDataRounds++;
+
+            console.log(
+                `No new profiles: ${noNewDataRounds}/${REQUIRED_STABLE_ROUNDS}`
+            );
+
+            if (
+                noNewDataRounds >=
+                REQUIRED_STABLE_ROUNDS
+            ) {
+
+                console.log("=================================");
+                console.log(
+                    "ALL SENT INVITATIONS COLLECTED"
+                );
+                console.log(
+                    "Total unique profiles:",
+                    allCollectedInvitations.size
+                );
+                console.log("=================================");
 
                 break;
             }
 
-            lastCount = finalCount;
+            // Wait and check again
+            await new Promise(resolve =>
+                setTimeout(resolve, 3000)
+            );
         }
-    }
 
-    /*
-     * FINAL COLLECTION
-     */
-    getSentInvitations();
+        /*
+         * =========================================
+         * FINAL COLLECTION
+         * =========================================
+         */
 
-    const finalInvitations =
-        Array.from(
-            allCollectedInvitations.values()
+        getSentInvitations();
+
+        const finalInvitations =
+            Array.from(
+                allCollectedInvitations.values()
+            );
+
+        console.log("=================================");
+        console.log(
+            "FINAL UNIQUE SENT INVITATIONS:",
+            finalInvitations.length
         );
+        console.log(finalInvitations);
+        console.log("=================================");
 
-    console.log("");
-    console.log("=================================");
-    console.log(
-        "FINAL UNIQUE SENT INVITATIONS:",
-        finalInvitations.length
-    );
-    console.log(
-        finalInvitations
-    );
-    console.log("=================================");
+        /*
+         * Send ONLY ONCE to background.js
+         */
 
-    /*
-     * Send ONLY the final collected Sent Invitation
-     * data to background.js.
-     */
-    sendCollectedInvitations();
-}
+        chrome.runtime.sendMessage(
+            {
+                type: "LINKEDIN_DATA",
+                data: finalInvitations
+            },
+            (response) => {
+
+                if (chrome.runtime.lastError) {
+
+                    console.error(
+                        "Failed to send LinkedIn data:",
+                        chrome.runtime.lastError.message
+                    );
+
+                } else {
+
+                    console.log(
+                        "COMPLETE SENT INVITATION LIST SENT TO BACKGROUND:",
+                        finalInvitations.length
+                    );
+                }
+            }
+        );
+    }
 
     setTimeout(() => {
 

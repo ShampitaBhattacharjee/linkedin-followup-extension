@@ -523,6 +523,32 @@ async function checkForDisappearedPendingInvitations(
                     )
                     .filter(Boolean)
             );
+        console.log("===== DISAPPEARANCE DEBUG =====");
+
+        console.log(
+            "Pending URLs from Sheet:",
+            rows
+                .filter(row => row[3] === "Pending")
+                .map(row => ({
+                    name: row[0],
+                    url: row[1]
+                }))
+        );
+
+        console.log(
+            "URLs collected from Sent Invitations:",
+            currentSentInvitations.map(invitation => ({
+                name: invitation.name,
+                url: invitation.linkedinUrl
+            }))
+        );
+
+        console.log(
+            "Current Sent URL Set:",
+            Array.from(currentSentUrls)
+        );
+
+        console.log("==============================");
 
         /*
          * Find Pending invitations in the Sheet
@@ -588,10 +614,10 @@ async function checkForDisappearedPendingInvitations(
          *
          * We will NOT change their status yet.
          */
-                /*
-         * If there are disappeared pending invitations,
-         * remember them for the Connections check.
-         */
+        /*
+ * If there are disappeared pending invitations,
+ * remember them for the Connections check.
+ */
         if (disappearedInvitations.length > 0) {
 
             await chrome.storage.local.set({
@@ -942,7 +968,7 @@ chrome.runtime.onMessage.addListener(
             return true;
         }
 
-                if (message.type === "CONNECTION_CHECK_RESULTS") {
+        if (message.type === "CONNECTION_CHECK_RESULTS") {
 
             console.log(
                 "Received connection check results:",
