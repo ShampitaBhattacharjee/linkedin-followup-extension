@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>LinkedIn Follow-Up Tracker</title>
-
     <style>
         body {
             width: 320px;
@@ -16,20 +14,62 @@
 
         h2 {
             margin-top: 0;
+            font-size: 18px;
         }
 
         p {
             line-height: 1.5;
+            font-size: 13px;
+            color: #444;
         }
 
         button {
             width: 100%;
             padding: 10px;
             cursor: pointer;
+            background-color: #0a66c2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #status {
+            margin-top: 15px;
+            font-size: 13px;
+        }
+
+        #status.success {
+            color: #2e7d32;
+        }
+
+        #status.error {
+            color: #c62828;
+        }
+
+        #status.loading {
+            color: #1976d2;
+        }
+
+        #sheetLink {
+            display: none;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #0a66c2;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        #sheetLink:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
-
 <body>
 
     <h2>LinkedIn Follow-Up Tracker</h2>
@@ -44,6 +84,8 @@
     </button>
 
     <div id="status"></div>
+
+    <a id="sheetLink" href="#" target="_blank">Open Google Sheet ↗</a>
 
     <script src="popup.js"></script>
 
