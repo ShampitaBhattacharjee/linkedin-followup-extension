@@ -1,638 +1,395 @@
-console.log("Background service started.");
+console.log("Background service worker running.");
 
-let sheetSaveInProgress = false;
-let pendingLinkedInData = [];
 let sentInvitationsTabId = null;
 
 function getGoogleToken() {
     return new Promise((resolve, reject) => {
-        chrome.identity.getAuthToken(
-            {
-                interactive: true
-            },
-            (token) => {
-                if (chrome.runtime.lastError) {
-                    reject(
-                        new Error(chrome.runtime.lastError.message)
-                    );
-                    return;
-                }
-
-                if (!token) {
-                    reject(
-                        new Error("Google authentication failed.")
-                    );
-                    return;
-                }
-
-                resolve(token);
+        chrome.identity.getAuthToken({ interactive: true }, (token) => {
+            if (chrome.runtime.lastError || !token) {
+                reject(new Error(chrome.runtime.lastError?.message || "Auth failed"));
+                return;
             }
-        );
+            resolve(token);
+        });
     });
 }
 
-// Create Google Sheet
-async function createSpreadsheet(token) {
-    const response = await fetch(
-        "https://sheets.googleapis.com/v4/spreadsheets",
-        {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${token}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                properties: {
-                    title: "LinkedIn Follow-Up Tracker"
-                }
-            })
-        }
-    );
+/* =====================================================
+   MESSAGE HANDLERS
+===================================================== */
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-            `Could not create Google Sheet: ${errorText}`
-        );
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === "FETCH_SHEET_DATA") {
+        fetchSheetData()
+            .then(data => sendResponse({ success: true, data: data }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
     }
 
-    return await response.json();
+    if (message.type === "MARK_ACTION_DONE") {
+        markActionDone(message.rowNumber, message.currentStage)
+            .then(() => sendResponse({ success: true }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
+    }
+
+    if (message.type === "MARK_REPLIED") {
+        updateRowStatus(message.rowNumber, "Reply Received")
+            .then(() => sendResponse({ success: true }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
+    }
+
+    if (message.type === "AUTO_DETECT_REPLY") {
+        handleAutoDetectReply(message.linkedinUrl);
+        return true;
+    }
+
+    if (message.type === "LINKEDIN_DATA") {
+        saveLinkedInDataToSheet(message.data || [], sender.tab?.id)
+            .then(() => sendResponse({ success: true }))
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
+    }
+
+    if (message.type === "CONNECTION_CHECK_RESULTS") {
+    updateConnectionCheckResults(message.data || [])
+        .then(() => {
+            chrome.storage.local.set({ syncInProgress: false });
+            sendResponse({ success: true });
+
+            // Safely verify tab existence before removal
+            if (sender.tab?.id) {
+                chrome.tabs.get(sender.tab.id, (tab) => {
+                    if (chrome.runtime.lastError) {
+                        console.log("Tab already closed or invalid:", chrome.runtime.lastError.message);
+                    } else if (tab) {
+                        chrome.tabs.remove(tab.id);
+                        console.log(`Tab ${tab.id} closed after completing connection checks.`);
+                    }
+                });
+            }
+        })
+        .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+}
+});
+
+/* =====================================================
+   GOOGLE SHEETS OPERATIONS
+===================================================== */
+
+async function fetchSheetData() {
+    const storage = await chrome.storage.local.get(["spreadsheetId"]);
+    if (!storage.spreadsheetId) throw new Error("No Google Sheet connected.");
+
+    const token = await getGoogleToken();
+    const range = "Sheet1!A2:J";
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/${encodeURIComponent(range)}`;
+
+    const res = await fetch(url, { headers: { "Authorization": `Bearer ${token}` } });
+    const data = await res.json();
+    const rows = data.values || [];
+
+    return rows.map((row, idx) => ({
+        rowNumber: idx + 2,
+        name: row[0] || "",
+        linkedinUrl: row[1] || "",
+        dateAdded: row[2] || "",
+        status: row[3] || "Pending",
+        invitationNote: row[4] || "",
+        lastContacted: row[5] || "",
+        followUpDate: row[6] || "",
+        notes: row[7] || "",
+        lastUpdated: row[8] || "",
+        stage: row[9] || "0"
+    }));
 }
 
-// Initialize extension
-async function initializeExtension() {
-    console.log(
-        "Initializing LinkedIn Follow-Up Tracker..."
-    );
+async function markActionDone(rowNumber, currentStage) {
+    const storage = await chrome.storage.local.get(["spreadsheetId"]);
+    const token = await getGoogleToken();
 
-    const result = await chrome.storage.local.get([
-        "spreadsheetId",
-        "spreadsheetUrl"
-    ]);
+    const nextStage = currentStage + 1;
+    const today = new Date();
+    const todayStr = today.toLocaleDateString("en-IN");
 
-    // Sheet already exists
-    if (result.spreadsheetId) {
-        console.log(
-            "Google Sheet already exists:",
-            result.spreadsheetId
-        );
+    const future = new Date();
+    future.setDate(today.getDate() + 3);
+    const futureStr = future.toLocaleDateString("en-IN");
 
-        try {
-            const token = await getGoogleToken();
-            await addHeaders(
-                token,
-                result.spreadsheetId
-            );
-        } catch (error) {
-            console.error(
-                "Could not add headers:",
-                error
-            );
-        }
-        return;
-    }
+    const isCompleted = nextStage >= 4;
+    const newStatus = isCompleted ? "Completed" : "Accepted";
 
-    console.log("No Google Sheet found.");
-    console.log("Requesting Google authorization...");
+    const range = `Sheet1!D${rowNumber}:J${rowNumber}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
 
-    try {
-        const token = await getGoogleToken();
-
-        console.log("Google authorization successful.");
-        console.log("Creating Google Sheet...");
-
-        const spreadsheet = await createSpreadsheet(token);
-        const spreadsheetId = spreadsheet.spreadsheetId;
-        const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-
-        console.log("Google Sheet created successfully!");
-        console.log("Spreadsheet ID:", spreadsheetId);
-        console.log("Spreadsheet URL:", spreadsheetUrl);
-
-        // Save Sheet information
-        await chrome.storage.local.set({
-            spreadsheetId: spreadsheetId,
-            spreadsheetUrl: spreadsheetUrl,
-            googleSheetsConnected: true
-        });
-
-        console.log("Spreadsheet information saved.");
-    } catch (error) {
-        console.error(
-            "Google Sheet setup failed:",
-            error
-        );
-    }
-}
-
-async function addHeaders(token, spreadsheetId) {
-    const headers = [
-        "Name",
-        "LinkedIn URL",
-        "Date Added",
-        "Status",
-        "Invitation Note",
-        "Last Contacted",
-        "Follow-Up Date",
-        "Notes",
-        "Last Updated"
-    ];
-
-    const range = "Sheet1!A1:I1";
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
-
-    const response = await fetch(url, {
+    await fetch(url, {
         method: "PUT",
         headers: {
             "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            values: [headers]
+            values: [[newStatus, "", todayStr, futureStr, "", todayStr, nextStage.toString()]]
         })
     });
+}
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-            `Could not create headers: ${errorText}`
-        );
+async function updateRowStatus(rowNumber, newStatus) {
+    const storage = await chrome.storage.local.get(["spreadsheetId"]);
+    const token = await getGoogleToken();
+    const todayStr = new Date().toLocaleDateString("en-IN");
+
+    const statusUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/Sheet1!D${rowNumber}?valueInputOption=RAW`;
+    await fetch(statusUrl, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ values: [[newStatus]] })
+    });
+
+    const updatedUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/Sheet1!I${rowNumber}?valueInputOption=RAW`;
+    await fetch(updatedUrl, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ values: [[todayStr]] })
+    });
+}
+
+async function handleAutoDetectReply(linkedinUrl) {
+    const rows = await fetchSheetData();
+    const match = rows.find(r => r.linkedinUrl.toLowerCase() === linkedinUrl.toLowerCase());
+    if (match && match.status !== "Reply Received") {
+        await updateRowStatus(match.rowNumber, "Reply Received");
+        console.log(`Auto-marked ${match.name} as Reply Received.`);
     }
-
-    console.log("Headers added successfully.");
 }
 
 async function saveLinkedInDataToSheet(invitations) {
-    try {
-        if (!invitations || invitations.length === 0) {
-            console.log("No LinkedIn data to save.");
-            return;
-        }
+    if (!invitations) return;
+    const storage = await chrome.storage.local.get(["spreadsheetId"]);
+    if (!storage.spreadsheetId) return;
 
-        const result = await chrome.storage.local.get([
-            "spreadsheetId"
-        ]);
+    const token = await getGoogleToken();
+    const existingRange = "Sheet1!B2:B";
+    const existingUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/${encodeURIComponent(existingRange)}`;
 
-        if (!result.spreadsheetId) {
-            console.error("No Google Sheet found.");
-            return;
-        }
+    const res = await fetch(existingUrl, { headers: { "Authorization": `Bearer ${token}` } });
+    const data = await res.json();
+    const existingUrls = (data.values || []).flat().filter(Boolean);
 
-        const token = await getGoogleToken();
-        const spreadsheetId = result.spreadsheetId;
-
-        /*
-         * Get existing LinkedIn URLs from column B.
-         * These are used to prevent duplicate rows.
-         */
-        const existingRange = "Sheet1!B2:B";
-        const existingUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(existingRange)}`;
-
-        const existingResponse = await fetch(
-            existingUrl,
-            {
-                headers: {
-                    "Authorization": `Bearer ${token}`
-                }
-            }
-        );
-
-        if (!existingResponse.ok) {
-            throw new Error(
-                "Could not read existing Google Sheet data."
-            );
-        }
-
-        const existingData = await existingResponse.json();
-        const existingUrls = (existingData.values || [])
-            .flat()
-            .filter(Boolean);
-
-        /*
-         * Remove profiles that already exist in the Google Sheet.
-         */
-        const newInvitations = invitations.filter(
-            invitation => !existingUrls.includes(invitation.linkedinUrl)
-        );
-
-        if (newInvitations.length === 0) {
-            console.log("All LinkedIn invitations already exist in the sheet.");
-            return;
-        }
-
+    // Save new sent invitations to sheet
+    const newInvitations = invitations.filter(inv => !existingUrls.includes(inv.linkedinUrl));
+    if (newInvitations.length > 0) {
         const today = new Date().toLocaleDateString("en-IN");
-
-        /*
-         * Convert LinkedIn profiles into Google Sheet rows.
-         */
-        const rows = newInvitations.map(invitation => [
-            invitation.name || "",
-            invitation.linkedinUrl || "",
-            today,
-            "Pending",
-            invitation.invitationNote || "",
-            "",
-            "",
-            "",
-            today
+        const rows = newInvitations.map(inv => [
+            inv.name || "", inv.linkedinUrl || "", today, "Pending", inv.invitationNote || "", "", "", "", today, "0"
         ]);
 
-        /*
-         * Append new rows to Google Sheet.
-         */
-        const appendRange = "Sheet1!A:I";
-        const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
-
-        const response = await fetch(
-            appendUrl,
-            {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    values: rows
-                })
-            }
-        );
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-                `Could not save LinkedIn data: ${errorText}`
-            );
-        }
-
-        console.log(
-            `${rows.length} LinkedIn invitation(s) saved to Google Sheet.`
-        );
-
-    } catch (error) {
-        console.error(
-            "Error saving LinkedIn data to Google Sheet:",
-            error
-        );
-        throw error;
+        const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/Sheet1!A:J:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+        await fetch(appendUrl, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ values: rows })
+        });
     }
+
+    // Identify ONLY profiles that disappeared from Sent Invitations
+    await triggerConnectionsCheck(invitations.map(i => i.linkedinUrl));
 }
 
-async function checkForDisappearedPendingInvitations(currentSentInvitations) {
-    try {
-        console.log("Checking for disappeared pending invitations...");
+async function saveLinkedInDataToSheet(invitations, tabId) {
+    if (!invitations) return;
+    const storage = await chrome.storage.local.get(["spreadsheetId"]);
+    if (!storage.spreadsheetId) return;
 
-        const result = await chrome.storage.local.get([
-            "spreadsheetId"
+    const token = await getGoogleToken();
+    const existingRange = "Sheet1!B2:B";
+    const existingUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/${encodeURIComponent(existingRange)}`;
+
+    const res = await fetch(existingUrl, { headers: { "Authorization": `Bearer ${token}` } });
+    const data = await res.json();
+    const existingUrls = (data.values || []).flat().filter(Boolean);
+
+    // Save new sent invitations to sheet
+    const newInvitations = invitations.filter(inv => !existingUrls.includes(inv.linkedinUrl));
+    if (newInvitations.length > 0) {
+        const today = new Date().toLocaleDateString("en-IN");
+        const rows = newInvitations.map(inv => [
+            inv.name || "", inv.linkedinUrl || "", today, "Pending", inv.invitationNote || "", "", "", "", today, "0"
         ]);
 
-        if (!result.spreadsheetId) {
-            console.log(
-                "No Google Sheet found. Cannot check invitation status."
-            );
-            return [];
-        }
+        const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/Sheet1!A:J:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+        await fetch(appendUrl, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ values: rows })
+        });
+    }
 
-        const token = await getGoogleToken();
-        const spreadsheetId = result.spreadsheetId;
+    // Pass tabId so we redirect the SAME tab
+    await triggerConnectionsCheck(invitations.map(i => i.linkedinUrl), tabId);
+}
 
-        const range = "Sheet1!A2:D";
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`;
+async function triggerConnectionsCheck(currentlySentUrls = [], tabId = null) {
+    try {
+        const rows = await fetchSheetData();
+        
+        // Strict URL canonicalization helper
+        const cleanUrl = (u) => {
+            if (!u) return "";
+            return u.toLowerCase()
+                .replace(/^https?:\/\//, "")
+                .replace(/^www\./, "")
+                .split('?')[0]
+                .split('#')[0]
+                .replace(/\/$/, "");
+        };
 
-        const response = await fetch(url, {
-            headers: {
-                "Authorization": `Bearer ${token}`
-            }
+        const normalizedSentList = currentlySentUrls.map(cleanUrl);
+
+        // Find Pending rows from Google Sheet that are strictly NO LONGER in the Sent list
+        const disappearedRows = rows.filter(r => {
+            if (r.status !== "Pending") return false;
+            const normalizedSheetUrl = cleanUrl(r.linkedinUrl);
+            return !normalizedSentList.includes(normalizedSheetUrl);
         });
 
-        if (!response.ok) {
-            throw new Error(
-                "Could not read existing invitation records."
-            );
+        if (disappearedRows.length === 0) {
+            console.log("No disappeared profiles found. Connections check skipped.");
+            if (tabId) chrome.tabs.remove(tabId); // Close sync tab when done
+            return;
         }
 
-        const data = await response.json();
-        const rows = data.values || [];
+        console.log(`Targeting only ${disappearedRows.length} disappeared profile(s) for connection search.`);
 
-        const currentSentUrls = new Set(
-            (currentSentInvitations || [])
-                .map(invitation => invitation.linkedinUrl)
-                .filter(Boolean)
-        );
+        await chrome.storage.local.set({ pendingConnectionChecks: disappearedRows });
 
-        console.log("===== DISAPPEARANCE DEBUG =====");
-        console.log(
-            "Pending URLs from Sheet:",
-            rows
-                .filter(row => row[3] === "Pending")
-                .map(row => ({ name: row[0], url: row[1] }))
-        );
-        console.log(
-            "URLs collected from Sent Invitations:",
-            currentSentInvitations.map(invitation => ({
-                name: invitation.name,
-                url: invitation.linkedinUrl
-            }))
-        );
-        console.log("Current Sent URL Set:", Array.from(currentSentUrls));
-        console.log("==============================");
-
-        const disappearedInvitations = rows
-            .map((row, index) => ({
-                rowNumber: index + 2,
-                name: row[0] || "",
-                linkedinUrl: row[1] || "",
-                dateAdded: row[2] || "",
-                status: row[3] || ""
-            }))
-            .filter(row => (
-                row.status === "Pending" &&
-                row.linkedinUrl &&
-                !currentSentUrls.has(row.linkedinUrl)
-            ));
-
-        console.log("=================================");
-        console.log("Pending invitations in Sheet:", rows.filter(row => row[3] === "Pending").length);
-        console.log("Current Sent Invitations:", currentSentUrls.size);
-        console.log("Disappeared Pending invitations:", disappearedInvitations.length);
-        console.log("Disappeared invitations:", disappearedInvitations);
-        console.log("=================================");
-
-        if (disappearedInvitations.length > 0) {
-            await chrome.storage.local.set({
-                pendingConnectionChecks: disappearedInvitations
+        // Redirect SAME tab instead of creating a new one
+        if (tabId) {
+            chrome.tabs.update(tabId, {
+                url: "https://www.linkedin.com/mynetwork/invite-connect/connections/"
             });
-
-            console.log("Profiles saved for Connections check:", disappearedInvitations);
-
-            if (sentInvitationsTabId !== null) {
-                chrome.tabs.update(
-                    sentInvitationsTabId,
-                    {
-                        url: "https://www.linkedin.com/mynetwork/invite-connect/connections/"
-                    },
-                    () => {
-                        if (chrome.runtime.lastError) {
-                            console.error(
-                                "Could not navigate to Connections:",
-                                chrome.runtime.lastError.message
-                            );
-                        } else {
-                            console.log("Same LinkedIn tab navigating to Connections.");
-                        }
-                    }
-                );
-            } else {
-                console.error("No Sent Invitations tab ID available.");
-            }
         } else {
-            // No connection checks required; safe to close the scraping tab immediately
-            closeScraperTab();
+            chrome.tabs.create({
+                url: "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+                active: true
+            });
         }
-
-        return disappearedInvitations;
-
-    } catch (error) {
-        console.error("Error checking disappeared invitations:", error);
-        closeScraperTab();
-        return [];
-    }
-}
-
-async function processPendingLinkedInData() {
-    if (sheetSaveInProgress || pendingLinkedInData.length === 0) {
-        return;
-    }
-
-    sheetSaveInProgress = true;
-    const dataToSave = pendingLinkedInData;
-    pendingLinkedInData = [];
-
-    try {
-        console.log("Processing pending LinkedIn data:", dataToSave.length);
-        await saveLinkedInDataToSheet(dataToSave);
-    } catch (error) {
-        console.error("Failed to process pending LinkedIn data:", error);
-        pendingLinkedInData = [...dataToSave, ...pendingLinkedInData];
-    } finally {
-        sheetSaveInProgress = false;
-        if (pendingLinkedInData.length > 0) {
-            processPendingLinkedInData();
-        }
+    } catch (err) {
+        console.error("Error setting up connection check:", err);
     }
 }
 
 async function updateConnectionCheckResults(results) {
-    try {
-        console.log("Updating Google Sheet with connection results:", results);
+    if (!results || results.length === 0) return;
+    const storage = await chrome.storage.local.get(["spreadsheetId"]);
+    if (!storage.spreadsheetId) return;
 
-        if (!results || results.length === 0) {
-            console.log("No connection results to update.");
-            closeScraperTab();
-            return;
-        }
+    const token = await getGoogleToken();
+    const today = new Date().toLocaleDateString("en-IN");
 
-        const storage = await chrome.storage.local.get(["spreadsheetId"]);
-        if (!storage.spreadsheetId) {
-            throw new Error("No Google Sheet found.");
-        }
+    for (const res of results) {
+        if (res.error || !res.connected) continue;
 
-        const token = await getGoogleToken();
-        const spreadsheetId = storage.spreadsheetId;
+        // Target range D to J for the accepted profile
+        const range = `Sheet1!D${res.rowNumber}:J${res.rowNumber}`;
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
 
-        for (const result of results) {
-            if (result.error) {
-                console.warn("Skipping profile because connection check failed:", result.name);
-                continue;
-            }
-
-            const status = result.connected ? "Accepted" : "Rejected";
-            const today = new Date().toLocaleDateString("en-IN");
-
-            const statusRange = `Sheet1!D${result.rowNumber}`;
-            const statusUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(statusRange)}?valueInputOption=RAW`;
-
-            await fetch(statusUrl, {
-                method: "PUT",
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ values: [[status]] })
-            });
-
-            const updatedRange = `Sheet1!I${result.rowNumber}`;
-            const updatedUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(updatedRange)}?valueInputOption=RAW`;
-
-            await fetch(updatedUrl, {
-                method: "PUT",
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ values: [[today]] })
-            });
-
-            console.log(`${result.name} → ${status}`);
-        }
-
-        await chrome.storage.local.remove("pendingConnectionChecks");
-        console.log("Google Sheet connection statuses updated successfully.");
-
-    } catch (error) {
-        console.error("Error updating connection check results:", error);
-    } finally {
-        // Automatically close tab when connection check completes
-        closeScraperTab();
-    }
-}
-
-function closeScraperTab() {
-    if (sentInvitationsTabId !== null) {
-        chrome.tabs.remove(sentInvitationsTabId, () => {
-            if (chrome.runtime.lastError) {
-                console.log("Tab already closed or lost.");
-            } else {
-                console.log("Scraper tab closed automatically.");
-            }
-            sentInvitationsTabId = null;
+        // Column layout: D: Status, E: Invitation Note, F: Last Contacted, G: Follow-Up Date, H: Notes, I: Last Updated, J: Stage
+        await fetch(url, {
+            method: "PUT",
+            headers: { 
+                "Authorization": `Bearer ${token}`, 
+                "Content-Type": "application/json" 
+            },
+            body: JSON.stringify({
+                values: [["Accepted", "", "", today, "", today, "0"]]
+            })
         });
+        console.log(`Updated row ${res.rowNumber} (${res.name}) to Accepted.`);
     }
 }
 
+/* =====================================================
+   SYNC ENGINE & NOTIFICATION CLICK LISTENER
+===================================================== */
+
+// background.js
+
+function startFullSync() {
+    console.log("Starting automated sync routine...");
+    
+    // Set flag so content scripts know a sync is running
+    chrome.storage.local.set({ syncInProgress: true }, () => {
+        chrome.tabs.create({
+            url: "https://www.linkedin.com/mynetwork/invitation-manager/sent/",
+            active: true
+        }, (tab) => {
+            sentInvitationsTabId = tab.id;
+        });
+    });
+}
+
+// Clear flag when process finishes or connection check completes
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === "LINKEDIN_DATA") {
-        console.log("Received LinkedIn data:", message.data);
-
-        pendingLinkedInData = [
-            ...pendingLinkedInData,
-            ...(message.data || [])
-        ];
-
-        const uniqueData = new Map();
-        pendingLinkedInData.forEach(item => {
-            if (item.linkedinUrl) {
-                uniqueData.set(item.linkedinUrl, item);
-            }
-        });
-
-        pendingLinkedInData = Array.from(uniqueData.values());
-        console.log("Pending LinkedIn profiles:", pendingLinkedInData.length);
-
-        processPendingLinkedInData();
-        checkForDisappearedPendingInvitations(message.data || []);
-
-        sendResponse({ success: true });
-        return true;
-    }
+    // ... existing handlers ...
 
     if (message.type === "CONNECTION_CHECK_RESULTS") {
-        console.log("Received connection check results:", message.data);
-
         updateConnectionCheckResults(message.data || [])
-            .then(() => sendResponse({ success: true }))
-            .catch((error) => sendResponse({ success: false, error: error.message }));
-
+            .then(() => {
+                // Clear sync flag when done
+                chrome.storage.local.set({ syncInProgress: false });
+                sendResponse({ success: true });
+                if (sender.tab?.id) {
+                    chrome.tabs.remove(sender.tab.id);
+                }
+            })
+            .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
     }
 });
 
 function requestSyncPermission() {
-    // 1x1 transparent PNG as fallback icon so Chrome doesn't crash if icon48.png is missing
-    const dummyIcon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    // Generate a clean 1x1 pixel PNG data URL dynamically to bypass local file/image fetching errors
+    const canvas = new OffscreenCanvas(1, 1);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#0A66C2"; // LinkedIn Blue
+    ctx.fillRect(0, 0, 1, 1);
 
-    chrome.notifications.create("sync_request", {
-        type: "basic",
-        iconUrl: dummyIcon,
-        title: "LinkedIn Follow-Up Tracker",
-        message: "We need ~2 minutes of active window focus to accurately update all your LinkedIn follow-ups. Ready to sync?",
-        buttons: [
-            { title: "Start Sync Now" },
-            { title: "Ask Again in 30 Mins" }
-        ],
-        requireInteraction: true
-    }, (notificationId) => {
-        if (chrome.runtime.lastError) {
-            console.error("Notification Error:", chrome.runtime.lastError.message);
-        } else {
-            console.log("Notification displayed successfully:", notificationId);
-        }
+    canvas.convertToBlob({ type: "image/png" }).then((blob) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+            const dataUrl = reader.result;
+
+            chrome.notifications.create("sync_request", {
+                type: "basic",
+                iconUrl: dataUrl,
+                title: "LinkedIn Follow-Up Tracker",
+                message: "Ready to sync latest LinkedIn invitations and accepted connections?",
+                buttons: [{ title: "Start Sync Now" }, { title: "Ask Again in 30 Mins" }],
+                requireInteraction: true
+            });
+        };
     });
 }
 
+// Notification button click handler (Restored)
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
     if (notificationId === "sync_request") {
         if (buttonIndex === 0) {
-            console.log("User approved sync. Opening active tab...");
-            openSentInvitationsPage();
-        } else {
-            console.log("User deferred sync. Will prompt again in 30 minutes.");
+            startFullSync();
         }
         chrome.notifications.clear(notificationId);
     }
 });
 
-function openSentInvitationsPage() {
-    const url = "https://www.linkedin.com/mynetwork/invitation-manager/sent/";
-
-    if (sentInvitationsTabId !== null) {
-        chrome.tabs.update(
-            sentInvitationsTabId,
-            { url: url, active: true },
-            (tab) => {
-                if (chrome.runtime.lastError) {
-                    sentInvitationsTabId = null;
-                    createSentInvitationsTab(url);
-                } else {
-                    console.log("Reusing existing LinkedIn tab:", tab.id);
-                }
-            }
-        );
-        return;
-    }
-
-    createSentInvitationsTab(url);
-}
-
-function createSentInvitationsTab(url) {
-    // ACTIVE is set to TRUE so Chrome does not throttle DOM rendering/scrolling
-    chrome.tabs.create(
-        {
-            url: url,
-            active: true
-        },
-        (tab) => {
-            if (chrome.runtime.lastError) {
-                console.error(
-                    "Could not create LinkedIn tab:",
-                    chrome.runtime.lastError.message
-                );
-                return;
-            }
-
-            sentInvitationsTabId = tab.id;
-            console.log("LinkedIn Sent Invitations tab created:", tab.id);
-        }
-    );
-}
-
-// 1. Trigger notification on install/reload and configure alarm
-chrome.runtime.onInstalled.addListener((details) => {
-    console.log("Extension installed or reloaded. Requesting permission...");
+chrome.runtime.onInstalled.addListener(() => {
     requestSyncPermission();
-
-    chrome.alarms.create("linkedinDataSync", {
-        delayInMinutes: 30,
-        periodInMinutes: 30
-    });
+    chrome.alarms.create("linkedinDataSync", { delayInMinutes: 30, periodInMinutes: 30 });
 });
 
-// 2. Alarm listener for periodic 30-minute sync prompts
 chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === "linkedinDataSync") {
-        console.log("30-minute sync trigger. Asking user permission...");
-        requestSyncPermission();
-    }
+    if (alarm.name === "linkedinDataSync") requestSyncPermission();
 });
-
-// Start core extension setup
-initializeExtension();

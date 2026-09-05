@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Follow-Up Tracker - Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> -->
+    <!-- Replace CDN link with local file -->
+    <script src="chart.umd.js"></script>
+</head>
+
+<body>
+
+    <header class="app-header">
+        <div class="logo-area">
+            <h1>📊 LinkedIn Follow-Up Tracker</h1>
+        </div>
+        <div class="actions-area">
+            <button id="refreshBtn" class="btn btn-secondary">🔄 Refresh Data</button>
+            <a id="openSheetBtn" class="btn btn-outline" href="#" target="_blank">📄 Open Google Sheet ↗</a>
+        </div>
+    </header>
+
+    <main class="dashboard-container">
+
+        <!-- Metrics Section -->
+        <section class="metrics-grid">
+            <div class="card metric-card">
+                <h3>Total Invitations</h3>
+                <span class="metric-value" id="metricTotalSent">0</span>
+            </div>
+            <div class="card metric-card">
+                <h3>Accepted Requests</h3>
+                <span class="metric-value" id="metricAccepted">0</span>
+                <span class="metric-sub" id="metricAcceptRate">0% Acceptance Rate</span>
+            </div>
+            <div class="card metric-card">
+                <h3>Replies Received</h3>
+                <span class="metric-value" id="metricReplies">0</span>
+                <span class="metric-sub" id="metricReplyRate">0% Conversion Rate</span>
+            </div>
+            <div class="card metric-card highlight">
+                <h3>Pending Actions Today</h3>
+                <span class="metric-value" id="metricActionsToday">0</span>
+                <span class="metric-sub">New Messages & Follow-ups</span>
+            </div>
+        </section>
+
+        <!-- Charts Section -->
+        <section class="charts-grid">
+            <div class="card chart-card">
+                <h3>Outreach Funnel Breakdown</h3>
+                <div class="chart-wrapper">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+            <div class="card chart-card">
+                <h3>Follow-up Queue Distribution</h3>
+                <div class="chart-wrapper">
+                    <canvas id="stageChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tasks Table Section -->
+        <section class="card tasks-section">
+            <div class="section-header">
+                <h2>🎯 Outreach Action Center</h2>
+                <div class="filter-group">
+                    <button class="filter-btn active" data-filter="today">Due Today / Overdue</button>
+                    <button class="filter-btn" data-filter="upcoming">Upcoming</button>
+                    <button class="filter-btn" data-filter="all">All Contacts</button>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Stage</th>
+                            <th>Invitation Note</th>
+                            <th>Last Contacted</th>
+                            <th>Follow-Up Due</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taskTableBody">
+                        <tr>
+                            <td colspan="7" class="loading-cell">Loading tracker records from Google Sheets...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="dashboard.js"></script>
+</body>
+
+</html>

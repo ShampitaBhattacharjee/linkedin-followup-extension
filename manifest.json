@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "LinkedIn Follow-Up Tracker",
-    "version": "2.0.0",
-    "description": "Track LinkedIn connections and follow-ups directly in Google Sheets.",
+    "version": "2.1.0",
+    "description": "Track LinkedIn connections, auto-calculate follow-ups, and manage outreach from Google Sheets.",
     "action": {
         "default_popup": "popup.html"
     },
@@ -13,7 +13,8 @@
         "identity",
         "storage",
         "alarms",
-        "notifications"
+        "notifications",
+        "tabs"
     ],
     "host_permissions": [
         "https://www.linkedin.com/*",
@@ -25,6 +26,12 @@
             "https://www.googleapis.com/auth/drive.file"
         ]
     },
+    "web_accessible_resources": [
+        {
+            "resources": ["tea.gif"],
+            "matches": ["https://www.linkedin.com/*"]
+        }
+    ],
     "content_scripts": [
         {
             "matches": [
@@ -35,11 +42,19 @@
             ]
         },
         {
-            "matches":[
+            "matches": [
                 "https://www.linkedin.com/mynetwork/invite-connect/connections/*"
             ],
-            "js":[
+            "js": [
                 "connections.js"
+            ]
+        },
+        {
+            "matches": [
+                "https://www.linkedin.com/messaging/*"
+            ],
+            "js": [
+                "messaging.js"
             ]
         }
     ]
