@@ -14,7 +14,8 @@
         "storage",
         "alarms",
         "notifications",
-        "tabs"
+        "tabs",
+        "idle"
     ],
     "host_permissions": [
         "https://www.linkedin.com/*",
@@ -58,4 +59,4 @@
             ]
         }
     ]
-}
+}   

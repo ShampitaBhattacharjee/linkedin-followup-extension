@@ -2,6 +2,39 @@ console.log("Background service worker running.");
 
 let sentInvitationsTabId = null;
 
+/* =====================================================
+   TAB HELPER FUNCTIONS
+===================================================== */
+
+function safeRemoveTab(tabId) {
+    if (!tabId) return;
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError) {
+            console.log(`Tab ${tabId} already closed or missing.`);
+            return;
+        }
+        chrome.tabs.remove(tabId, () => {
+            if (chrome.runtime.lastError) {
+                console.log(`Could not remove tab ${tabId}:`, chrome.runtime.lastError.message);
+            }
+        });
+    });
+}
+
+function safeUpdateTab(tabId, updateProperties, fallbackCallback) {
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+            if (fallbackCallback) fallbackCallback();
+            return;
+        }
+        chrome.tabs.update(tabId, updateProperties, () => {
+            if (chrome.runtime.lastError && fallbackCallback) {
+                fallbackCallback();
+            }
+        });
+    });
+}
+
 function getGoogleToken() {
     return new Promise((resolve, reject) => {
         chrome.identity.getAuthToken({ interactive: true }, (token) => {
@@ -53,26 +86,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message.type === "CONNECTION_CHECK_RESULTS") {
-    updateConnectionCheckResults(message.data || [])
-        .then(() => {
-            chrome.storage.local.set({ syncInProgress: false });
-            sendResponse({ success: true });
+        updateConnectionCheckResults(message.data || [])
+            .then(() => {
+                chrome.storage.local.set({ syncInProgress: false });
+                sendResponse({ success: true });
 
-            // Safely verify tab existence before removal
-            if (sender.tab?.id) {
-                chrome.tabs.get(sender.tab.id, (tab) => {
-                    if (chrome.runtime.lastError) {
-                        console.log("Tab already closed or invalid:", chrome.runtime.lastError.message);
-                    } else if (tab) {
-                        chrome.tabs.remove(tab.id);
-                        console.log(`Tab ${tab.id} closed after completing connection checks.`);
-                    }
-                });
-            }
-        })
-        .catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
-}
+                if (sender.tab?.id) {
+                    safeRemoveTab(sender.tab.id);
+                }
+            })
+            .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
+    }
 });
 
 /* =====================================================
@@ -165,40 +190,7 @@ async function handleAutoDetectReply(linkedinUrl) {
     }
 }
 
-async function saveLinkedInDataToSheet(invitations) {
-    if (!invitations) return;
-    const storage = await chrome.storage.local.get(["spreadsheetId"]);
-    if (!storage.spreadsheetId) return;
-
-    const token = await getGoogleToken();
-    const existingRange = "Sheet1!B2:B";
-    const existingUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/${encodeURIComponent(existingRange)}`;
-
-    const res = await fetch(existingUrl, { headers: { "Authorization": `Bearer ${token}` } });
-    const data = await res.json();
-    const existingUrls = (data.values || []).flat().filter(Boolean);
-
-    // Save new sent invitations to sheet
-    const newInvitations = invitations.filter(inv => !existingUrls.includes(inv.linkedinUrl));
-    if (newInvitations.length > 0) {
-        const today = new Date().toLocaleDateString("en-IN");
-        const rows = newInvitations.map(inv => [
-            inv.name || "", inv.linkedinUrl || "", today, "Pending", inv.invitationNote || "", "", "", "", today, "0"
-        ]);
-
-        const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/Sheet1!A:J:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
-        await fetch(appendUrl, {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ values: rows })
-        });
-    }
-
-    // Identify ONLY profiles that disappeared from Sent Invitations
-    await triggerConnectionsCheck(invitations.map(i => i.linkedinUrl));
-}
-
-async function saveLinkedInDataToSheet(invitations, tabId) {
+async function saveLinkedInDataToSheet(invitations, tabId = null) {
     if (!invitations) return;
     const storage = await chrome.storage.local.get(["spreadsheetId"]);
     if (!storage.spreadsheetId) return;
@@ -257,7 +249,7 @@ async function triggerConnectionsCheck(currentlySentUrls = [], tabId = null) {
 
         if (disappearedRows.length === 0) {
             console.log("No disappeared profiles found. Connections check skipped.");
-            if (tabId) chrome.tabs.remove(tabId); // Close sync tab when done
+            if (tabId) safeRemoveTab(tabId);
             return;
         }
 
@@ -265,16 +257,14 @@ async function triggerConnectionsCheck(currentlySentUrls = [], tabId = null) {
 
         await chrome.storage.local.set({ pendingConnectionChecks: disappearedRows });
 
-        // Redirect SAME tab instead of creating a new one
+        const targetUrl = "https://www.linkedin.com/mynetwork/invite-connect/connections/";
+
         if (tabId) {
-            chrome.tabs.update(tabId, {
-                url: "https://www.linkedin.com/mynetwork/invite-connect/connections/"
+            safeUpdateTab(tabId, { url: targetUrl }, () => {
+                chrome.tabs.create({ url: targetUrl, active: true });
             });
         } else {
-            chrome.tabs.create({
-                url: "https://www.linkedin.com/mynetwork/invite-connect/connections/",
-                active: true
-            });
+            chrome.tabs.create({ url: targetUrl, active: true });
         }
     } catch (err) {
         console.error("Error setting up connection check:", err);
@@ -296,7 +286,6 @@ async function updateConnectionCheckResults(results) {
         const range = `Sheet1!D${res.rowNumber}:J${res.rowNumber}`;
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${storage.spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
 
-        // Column layout: D: Status, E: Invitation Note, F: Last Contacted, G: Follow-Up Date, H: Notes, I: Last Updated, J: Stage
         await fetch(url, {
             method: "PUT",
             headers: { 
@@ -315,12 +304,9 @@ async function updateConnectionCheckResults(results) {
    SYNC ENGINE & NOTIFICATION CLICK LISTENER
 ===================================================== */
 
-// background.js
-
 function startFullSync() {
     console.log("Starting automated sync routine...");
     
-    // Set flag so content scripts know a sync is running
     chrome.storage.local.set({ syncInProgress: true }, () => {
         chrome.tabs.create({
             url: "https://www.linkedin.com/mynetwork/invitation-manager/sent/",
@@ -331,27 +317,7 @@ function startFullSync() {
     });
 }
 
-// Clear flag when process finishes or connection check completes
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // ... existing handlers ...
-
-    if (message.type === "CONNECTION_CHECK_RESULTS") {
-        updateConnectionCheckResults(message.data || [])
-            .then(() => {
-                // Clear sync flag when done
-                chrome.storage.local.set({ syncInProgress: false });
-                sendResponse({ success: true });
-                if (sender.tab?.id) {
-                    chrome.tabs.remove(sender.tab.id);
-                }
-            })
-            .catch(err => sendResponse({ success: false, error: err.message }));
-        return true;
-    }
-});
-
 function requestSyncPermission() {
-    // Generate a clean 1x1 pixel PNG data URL dynamically to bypass local file/image fetching errors
     const canvas = new OffscreenCanvas(1, 1);
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#0A66C2"; // LinkedIn Blue
@@ -375,7 +341,6 @@ function requestSyncPermission() {
     });
 }
 
-// Notification button click handler (Restored)
 chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
     if (notificationId === "sync_request") {
         if (buttonIndex === 0) {
@@ -385,10 +350,21 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
     }
 });
 
+function setupPeriodicSync() {
+    chrome.alarms.get("linkedinDataSync", (alarm) => {
+        if (!alarm) {
+            chrome.alarms.create("linkedinDataSync", { delayInMinutes: 30, periodInMinutes: 30 });
+        }
+    });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
     requestSyncPermission();
-    chrome.alarms.create("linkedinDataSync", { delayInMinutes: 30, periodInMinutes: 30 });
+    setupPeriodicSync();
 });
+
+// Re-registers alarm dynamically whenever background worker awakes
+setupPeriodicSync();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === "linkedinDataSync") requestSyncPermission();
