@@ -1,4 +1,4 @@
-# LinkedIn Follow-Up Tracker 🚀
+# LinkedIn Follow-Up Tracker 
 
 A Chrome Extension that helps you **track LinkedIn connection requests, connections, conversations, and follow-ups** using your own Google Sheet as the central source of truth.
 
@@ -8,9 +8,9 @@ The extension is designed for people who actively network on LinkedIn and often 
 
 ---
 
-## ✨ Features
+## Features
 
-### 🔗 Connection Request Tracking
+### Connection Request Tracking
 
 - Automatically detects sent LinkedIn connection requests.
 - Tracks pending connection requests.
@@ -18,7 +18,7 @@ The extension is designed for people who actively network on LinkedIn and often 
 - Automatically synchronizes tracked profiles with Google Sheets.
 - Prevents unnecessary manual data entry.
 
-### 💬 Conversation Tracking
+### Conversation Tracking
 
 The extension monitors your LinkedIn messaging activity and keeps track of:
 
@@ -28,7 +28,7 @@ The extension monitors your LinkedIn messaging activity and keeps track of:
 - Whether a response has been received
 - Follow-up status
 
-### ⏰ Smart Follow-Up Reminders
+### Smart Follow-Up Reminders
 
 The extension helps you stay consistent with networking by calculating follow-up timing based on your activity.
 
@@ -65,7 +65,7 @@ The extension can:
 
 This means your tracked data isn't dependent on Chrome's local storage.
 
-### 🖥️ Extension Dashboard
+###  Extension Dashboard
 
 The extension provides a simple interface where you can:
 
@@ -75,7 +75,7 @@ The extension provides a simple interface where you can:
 - Open their LinkedIn profile
 - Access your networking data quickly
 
-### 📈 Networking Analytics
+###  Networking Analytics
 
 The project can be extended to provide useful networking insights such as:
 
@@ -88,7 +88,7 @@ The project can be extended to provide useful networking insights such as:
 
 ---
 
-# 🏗️ Architecture
+#  Architecture
 
 ```text
                    ┌─────────────────────┐
@@ -125,7 +125,7 @@ The project can be extended to provide useful networking insights such as:
 
 ---
 
-# 🧩 Project Components
+#  Project Components
 
 ## 1. Content Script
 
@@ -199,7 +199,7 @@ A typical record can contain information such as:
 
 ---
 
-# 🔄 How It Works
+#  How It Works
 
 ## Step 1 — Connect Google Sheet
 
@@ -299,7 +299,7 @@ The user does not need to manually enter every connection.
 
 ---
 
-# 🔔 Notifications
+#  Notifications
 
 The extension can generate browser notifications when an action requires the user's attention.
 
@@ -317,7 +317,7 @@ The final decision and action always remain with the user.
 
 ---
 
-# 🛡️ Privacy & Data Handling
+#  Privacy & Data Handling
 
 Privacy is an important part of the project.
 
@@ -353,7 +353,7 @@ The current design assumes:
 
 ---
 
-# 🛠️ Tech Stack
+#  Tech Stack
 
 ### Frontend / Extension
 
@@ -381,7 +381,7 @@ The current design assumes:
 
 ---
 
-# 📁 Project Structure
+# Project Structure
 
 A typical project structure looks like:
 
@@ -409,7 +409,7 @@ linkedin-followup-tracker/
 
 ---
 
-# ⚙️ Installation
+#  Installation
 
 ## Prerequisites
 
@@ -466,7 +466,7 @@ The extension should now appear in your Chrome extensions list.
 
 ---
 
-# 🔧 Google Sheets Setup
+#  Google Sheets Setup
 
 1. Create a new Google Sheet.
 2. Create the required Apps Script.
@@ -480,7 +480,7 @@ Once configured, the extension can synchronize tracked LinkedIn information with
 
 ---
 
-# 🚀 Usage
+#  Usage
 
 After installation:
 
@@ -508,7 +508,7 @@ Use the profile action to quickly navigate back to the person's LinkedIn profile
 
 ---
 
-# 📊 Example Workflow
+# Example Workflow
 
 Imagine you send a connection request to:
 
@@ -564,7 +564,7 @@ This helps prevent promising networking opportunities from being forgotten.
 
 ---
 
-# 📈 Future Improvements
+#  Future Improvements
 
 The project can be expanded with additional functionality.
 
@@ -605,7 +605,7 @@ Follow-Up Success Rate
 
 ---
 
-# ⚠️ Limitations
+#  Limitations
 
 This project depends on LinkedIn's website structure.
 
@@ -623,7 +623,7 @@ The extension also intentionally does **not** automatically send messages or con
 
 ---
 
-# 🤝 Contributing
+#  Contributing
 
 Contributions are welcome.
 
@@ -656,7 +656,7 @@ Then open a Pull Request.
 
 ---
 
-# 🔐 Responsible Use
+#  Responsible Use
 
 This project is intended to help users organize their own LinkedIn networking activity.
 
@@ -673,7 +673,7 @@ The extension is designed as a **personal productivity and follow-up tool**, not
 
 ---
 
-# 📄 License
+#  License
 
 Add your preferred license here.
 
@@ -685,15 +685,15 @@ MIT License
 
 ---
 
-# 👨‍💻 Author
+#  Author
 
-**Ayush Kumar Gupta**
+**Shampita Bhattacharjee**
 
 Built as a productivity tool for managing LinkedIn networking and follow-ups.
 
 ---
 
-## ⭐ If You Find This Project Useful
+##  If You Find This Project Useful
 
 Consider giving the repository a ⭐ on GitHub and sharing your feedback!
 
